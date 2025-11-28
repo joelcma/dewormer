@@ -22,7 +22,6 @@ var Version = "dev"
 type Config struct {
 	ScanPaths       []string `json:"scan_paths"`
 	BadPackageLists []string `json:"bad_package_lists"`
-	ScanInterval    string   `json:"scan_interval"` // e.g., "12h", "24h"
 }
 
 type ScanResult struct {
@@ -122,7 +121,6 @@ func createDefaultConfig(path string) error {
 		BadPackageLists: []string{
 			filepath.Join(homeDir, ".dewormer", "bad_package_lists", "npm-malicious.txt"),
 		},
-		ScanInterval:   "12h",
 	}
 
 	// Create bad package lists directory

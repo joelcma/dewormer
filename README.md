@@ -10,12 +10,19 @@ Dewormer continuously monitors your development directories for known malicious 
 
 ## Features
 
-- 🔍 **Automatic scanning** - Runs in the background at configurable intervals (default: every 12 hours)
+- 🔍 **Automatic scanning** - Can run on-demand (single-run) or periodically. The CLI performs a single run when no interval is specified. If you want periodic operation on the command line, invoke the program with the `--interval` flag; for installed services use your platform scheduler (systemd timer / launchd StartInterval / Windows scheduled task).
 - 🔔 **Desktop notifications** - Get alerted immediately when threats are found
 - 📦 **Multi-ecosystem support** - Scans both npm (package-lock.json) and Maven (pom.xml)
 - 🎯 **Customizable** - Configure scan paths and maintain your own bad package lists
 - 🪶 **Lightweight** - Single binary, minimal resource usage
 - 🖥️ **Cross-platform** - Works on Windows, macOS, and Linux
+
+## Command line
+
+Dewormer exposes a couple of convenient flags:
+
+- `--version` or `-v` — prints the build version and exits.
+- `--interval <duration>` or `-i <duration>` — run the program periodically with the supplied duration (e.g. `12h`, `30m`, `24h`). If omitted the program performs a single-run and exits. For production installs prefer scheduling the program to run at intervals using your system's scheduler (systemd timer / launchd StartInterval / Windows scheduled task) instead of relying on `--interval` in a background service.
 
 ## Installation
 
@@ -63,16 +70,20 @@ Edit `~/.dewormer/config.json`:
     "/Users/yourname/projects",
     "/Users/yourname/work",
     "C:\\Users\\yourname\\projects"
-  ],
-  "scan_interval": "12h"
+  ]
 }
 ```
 
 **Configuration options:**
 
 - `scan_paths` - List of directories to scan recursively for dependency files
-- `bad_package_lists` - List of text files containing known malicious packages
-- `scan_interval` - How often to scan (e.g., "6h", "12h", "24h", "30m")
+
+Dewormer will also look for bad package lists in `~/.dewormer/bad_package_lists/`. You can add your own lists or download community-maintained ones.
+The lists should be simple text files with one package per line in the format `package-name@version`.
+
+### Persistent scan state
+
+Dewormer keeps a small state file at `~/.dewormer/scan_state.json` which records the last time each scanned dependency file was processed. This allows Dewormer to skip files that haven't changed since the last scan and to only re-scan when either the dependency file changes or any bad package list file has been updated.
 
 ## Bad Package Lists
 
@@ -158,7 +169,7 @@ Create `~/Library/LaunchAgents/com.dewormer.agent.plist`:
     <string>com.dewormer.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/dewormer</string>
+      <string>/usr/local/bin/dewormer</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -178,27 +189,44 @@ launchctl load ~/Library/LaunchAgents/com.dewormer.agent.plist
 
 #### Linux (systemd)
 
-Create `/etc/systemd/system/dewormer.service`:
+Create a short, oneshot service and a timer to run it every 12 hours. Put both files under `/etc/systemd/system`.
+
+`/etc/systemd/system/dewormer.service` (oneshot):
 
 ```ini
 [Unit]
-Description=Dewormer Dependency Scanner
+Description=Dewormer Background Service (oneshot)
 After=network.target
 
 [Service]
-Type=simple
-User=yourname
+Type=oneshot
 ExecStart=/usr/local/bin/dewormer
-Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+`/etc/systemd/system/dewormer.timer` (runs the oneshot every 12 hours):
+
+```ini
+[Unit]
+Description=Run dewormer every 12 hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=12h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable and start the timer (the timer will invoke the oneshot service on schedule):
+
 ```bash
-sudo systemctl enable dewormer
-sudo systemctl start dewormer
-sudo systemctl status dewormer
+sudo systemctl daemon-reload
+sudo systemctl enable --now dewormer.timer
+sudo systemctl status dewormer.timer
 ```
 
 #### Windows (Task Scheduler)

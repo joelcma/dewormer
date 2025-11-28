@@ -40,8 +40,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     <key>ProgramArguments</key>
     <array>
     <string>/usr/local/bin/dewormer</string>
-    <string>--interval</string>
-    <string>12h</string>
   </array>
     <key>StartInterval</key>
     <integer>43200</integer> <!-- 12 hours -->
@@ -56,25 +54,42 @@ EOL
 fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  # On linux, set up a systemd service
+  # On linux, set up a systemd oneshot service + timer that runs every 12h.
   SERVICE=/etc/systemd/system/dewormer.service
   sudo bash -c "cat <<EOL > $SERVICE
 [Unit]
-Description=Dewormer Background Service
+Description=Dewormer Background Service (oneshot)
 After=network.target
+
 [Service]
-ExecStart=/usr/local/bin/dewormer --interval 12h
-Restart=always
+Type=oneshot
+ExecStart=/usr/local/bin/dewormer
+
 [Install]
 WantedBy=multi-user.target
 EOL"
-  sudo systemctl enable dewormer
-  sudo systemctl start dewormer
-  echo "Dewormer background service set up with systemd."
+
+  TIMER=/etc/systemd/system/dewormer.timer
+  sudo bash -c "cat <<EOL > $TIMER
+[Unit]
+Description=Run dewormer every 12 hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=12h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOL"
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now dewormer.timer
+  echo "Dewormer background service set up with systemd (oneshot + timer)."
   exit 0
 fi
 
 if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then
-  echo "Please set up a scheduled task to run '/path/to/dewormer --interval 12h' every 12 hours."
+  echo "Please set up a scheduled task to run '/path/to/dewormer' every 12 hours."
   exit 0
 fi
