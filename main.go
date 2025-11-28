@@ -96,20 +96,25 @@ func main() {
 }
 
 func getConfigPath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("Could not find home directory: %v", err)
+	// prefer $HOME environment variable if set (makes testing easier)
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Could not find home directory: %v", err)
+		}
 	}
 
 	configDir := filepath.Join(homeDir, ".dewormer")
 	os.MkdirAll(configDir, 0755)
-	
+
 	return filepath.Join(configDir, "config.json")
 }
 
 func createDefaultConfig(path string) error {
 	homeDir, _ := os.UserHomeDir()
-	
+
 	defaultConfig := Config{
 		ScanPaths: []string{
 			filepath.Join(homeDir, "projects"),
