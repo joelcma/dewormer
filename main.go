@@ -61,7 +61,7 @@ func main() {
 	// Determine which config path to use. CLI flag takes precedence.
 	var configPath string
 	if configFlag != "" {
-		configPath = configFlag
+		configPath = expandTilde(configFlag)
 	} else {
 		configPath = getConfigPath()
 	}
@@ -73,7 +73,7 @@ func main() {
 	// override variable (helpers call os.UserHomeDir which respects HOME, so this
 	// keeps parity with getConfigPath override semantics).
 	if badListsFlag != "" {
-		BadListsDirOverride = badListsFlag
+		BadListsDirOverride = expandTilde(badListsFlag)
 	}
 
 	// Check if config exists, create default if not
@@ -143,6 +143,35 @@ func getConfigPath() string {
 	os.MkdirAll(configDir, 0755)
 
 	return filepath.Join(configDir, "config.json")
+}
+
+// expandTilde expands a leading ~ to the current user's home directory.
+// If the path does not start with ~ it is returned unchanged. The returned
+// path is cleaned using filepath.Clean.
+func expandTilde(p string) string {
+	if p == "" {
+		return p
+	}
+	if p == "~" {
+		// honor HOME environment variable if present (helps tests and ephemeral runs)
+		if h := os.Getenv("HOME"); h != "" {
+			return filepath.Clean(h)
+		}
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Clean(h)
+		}
+		return p
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		if h := os.Getenv("HOME"); h != "" {
+			return filepath.Clean(filepath.Join(h, p[2:]))
+		}
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Clean(filepath.Join(h, p[2:]))
+		}
+		return p
+	}
+	return filepath.Clean(p)
 }
 
 func createDefaultConfig(path string) error {
@@ -302,29 +331,9 @@ func runScan(config *Config) {
 			for _, r := range readersList {
 				if r.Supports(info.Name()) {
 					// decide whether we need to scan this file using persisted
-					// state. We'll re-scan when any of the following is true:
-					//  - We've never scanned this file before
-					//  - The package file changed since we last scanned it
-					//  - Any bad-package list was modified since we last scanned it
-					pkgMod := info.ModTime()
-
-					// normalize path key (absolute + clean) so persisted state
-					// matches across runs regardless of how the scan was started
-					absPath := path
-					if !filepath.IsAbs(absPath) {
-						if a, err := filepath.Abs(path); err == nil {
-							absPath = a
-						}
-					}
-					absPath = filepath.Clean(absPath)
-
-					var lastScan time.Time
-					if ts, ok := state[absPath]; ok && ts > 0 {
-						lastScan = time.Unix(0, ts)
-					}
-
-					needScan := lastScan.IsZero() || pkgMod.After(lastScan) || latestListMod.After(lastScan)
-
+					// state. shouldScan returns the normalized path, last scan time
+					// and whether a scan is required.
+					absPath, lastScan, needScan := shouldScan(path, info, latestListMod, state)
 					if !needScan {
 						log.Printf("Skipping scan for %s (no changes since last scan at %s)", path, lastScan)
 						return nil
@@ -419,6 +428,30 @@ func loadBadPackages(listPaths []string) map[string]map[string]string {
 	}
 
 	return badPackages
+}
+
+// shouldScan determines whether a given file should be scanned based on the
+// persisted state (map of abs path -> unix-nano timestamp), the file's
+// modification time and the latest modification time among bad-package lists.
+// It returns the normalized absolute path, the lastScan time (zero if never)
+// and whether a scan is required.
+func shouldScan(path string, info os.FileInfo, latestListMod time.Time, state map[string]int64) (string, time.Time, bool) {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		if a, err := filepath.Abs(path); err == nil {
+			abs = a
+		}
+	}
+	abs = filepath.Clean(abs)
+
+	pkgMod := info.ModTime()
+	var lastScan time.Time
+	if ts, ok := state[abs]; ok && ts > 0 {
+		lastScan = time.Unix(0, ts)
+	}
+
+	need := lastScan.IsZero() || pkgMod.After(lastScan) || latestListMod.After(lastScan)
+	return abs, lastScan, need
 }
 
 func findMatches(deps map[string]string, badPackages map[string]map[string]string, filePath string) []ScanResult {
