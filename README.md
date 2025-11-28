@@ -64,10 +64,6 @@ Edit `~/.dewormer/config.json`:
     "/Users/yourname/work",
     "C:\\Users\\yourname\\projects"
   ],
-  "bad_package_lists": [
-    "/Users/yourname/.dewormer/bad_package_lists/npm-malicious.txt",
-    "/Users/yourname/.dewormer/bad_package_lists/maven-compromised.txt"
-  ],
   "scan_interval": "12h"
 }
 ```

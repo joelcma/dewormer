@@ -154,8 +154,39 @@ func runScan(config *Config) {
 	log.Println("Starting scan...")
 	startTime := time.Now()
 
+	// Build the list of bad package list files to load.
+	// We use any entries in config.BadPackageLists plus every file found in
+	// ~/.dewormer/bad_package_lists so users don't need to enumerate each file.
+	listPaths := make([]string, 0, len(config.BadPackageLists))
+	// add configured lists first (may be empty)
+	listPaths = append(listPaths, config.BadPackageLists...)
+
+	// also include every file under ~/.dewormer/bad_package_lists
+	if home, err := os.UserHomeDir(); err == nil {
+		listsDir := filepath.Join(home, ".dewormer", "bad_package_lists")
+		if entries, err := os.ReadDir(listsDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				full := filepath.Join(listsDir, e.Name())
+				// avoid duplicates
+				found := false
+				for _, p := range listPaths {
+					if p == full {
+						found = true
+						break
+					}
+				}
+				if !found {
+					listPaths = append(listPaths, full)
+				}
+			}
+		}
+	}
+
 	// Load all bad packages
-	badPackages := loadBadPackages(config.BadPackageLists)
+	badPackages := loadBadPackages(listPaths)
 	log.Printf("Loaded %d bad packages from %d lists", len(badPackages), len(config.BadPackageLists))
 
 	var results []ScanResult
