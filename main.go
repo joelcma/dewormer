@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -14,13 +15,14 @@ import (
 	"github.com/joelcma/dewormer/readers"
 )
 
+// Version can be overridden at build time using -ldflags "-X main.Version=1.2.3"
+var Version = "dev"
+
 type Config struct {
 	ScanPaths       []string `json:"scan_paths"`
 	BadPackageLists []string `json:"bad_package_lists"`
 	ScanInterval    string   `json:"scan_interval"` // e.g., "12h", "24h"
 }
-
-
 
 type ScanResult struct {
 	Package string
@@ -30,6 +32,15 @@ type ScanResult struct {
 }
 
 func main() {
+	// CLI flags
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
+	flag.BoolVar(&showVersion, "v", false, "Show version and exit (shorthand)")
+	flag.Parse()
+	if showVersion {
+		fmt.Println(Version)
+		os.Exit(0)
+	}
 	configPath := getConfigPath()
 	
 	// Check if config exists, create default if not
