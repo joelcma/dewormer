@@ -15,7 +15,7 @@ import (
 	"github.com/joelcma/dewormer/readers"
 )
 
-// Version can be overridden at build time using -ldflags "-X main.Version=1.2.3"
+// Version can be overridden at build time like this: go build -ldflags "-X main.Version=1.2.3" -o dewormer
 var Version = "dev"
 
 type Config struct {
