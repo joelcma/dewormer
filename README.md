@@ -234,7 +234,7 @@ sudo systemctl status dewormer.timer
 1. Open Task Scheduler
 2. Create Basic Task → Name it "Dewormer"
 3. Trigger: "When I log on"
-4. Action: "Start a program" → Browse to `dewormer.exe`
+4. Action: "Start a program" → Browse to and select the `dewormer` binary
 5. Check "Run whether user is logged on or not"
 
 ## How It Works
