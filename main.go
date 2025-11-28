@@ -19,6 +19,11 @@ import (
 // Version can be overridden at build time like this: go build -ldflags "-X main.Version=1.2.3" -o dewormer
 var Version = "dev"
 
+// ConfigPathOverride will be used when the user passes --config on the CLI.
+// When non-empty getConfigPath() will return this value instead of the default
+// ~/.dewormer/config.json path.
+var ConfigPathOverride string
+
 type Config struct {
 	ScanPaths       []string `json:"scan_paths"`
 	BadPackageLists []string `json:"bad_package_lists"`
@@ -35,16 +40,27 @@ func main() {
 	// CLI flags
 	var showVersion bool
 	var intervalFlag string
+	var configFlag string
 	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version and exit (shorthand)")
 	flag.StringVar(&intervalFlag, "interval", "", "Run periodically with this interval (e.g. 12h). If omitted the program performs a single run and exits.")
+	flag.StringVar(&configFlag, "config", "", "Path to config.json (default: ~/.dewormer/config.json)")
 	flag.StringVar(&intervalFlag, "i", "", "Shorthand for --interval")
 	flag.Parse()
 	if showVersion {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
-	configPath := getConfigPath()
+	// Determine which config path to use. CLI flag takes precedence.
+	var configPath string
+	if configFlag != "" {
+		configPath = configFlag
+	} else {
+		configPath = getConfigPath()
+	}
+
+	// Make the resolved path available to helper functions that call getConfigPath().
+	ConfigPathOverride = configPath
 
 	// Check if config exists, create default if not
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -95,6 +111,10 @@ func main() {
 }
 
 func getConfigPath() string {
+	// If CLI override is set, return it.
+	if ConfigPathOverride != "" {
+		return ConfigPathOverride
+	}
 	// prefer $HOME environment variable if set (makes testing easier)
 	homeDir := os.Getenv("HOME")
 	if homeDir == "" {
@@ -112,6 +132,10 @@ func getConfigPath() string {
 }
 
 func createDefaultConfig(path string) error {
+	// Ensure parent directory for the config exists (handles custom --config paths)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	homeDir, _ := os.UserHomeDir()
 
 	defaultConfig := Config{

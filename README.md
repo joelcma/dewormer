@@ -23,6 +23,7 @@ Dewormer exposes a couple of convenient flags:
 
 - `--version` or `-v` — prints the build version and exits.
 - `--interval <duration>` or `-i <duration>` — run the program periodically with the supplied duration (e.g. `12h`, `30m`, `24h`). If omitted the program performs a single-run and exits. For production installs prefer scheduling the program to run at intervals using your system's scheduler (systemd timer / launchd StartInterval / Windows scheduled task) instead of relying on `--interval` in a background service.
+ - `--config <path>` — path to config.json to use instead of the default `~/.dewormer/config.json`.
 
 ## Installation
 
@@ -48,6 +49,11 @@ sudo mv dewormer /usr/local/bin/
 ```
 
 ### First Run
+
+Default config locations:
+
+- macOS / Linux: `~/.dewormer/config.json`
+- Windows: `%USERPROFILE%\\.dewormer\\config.json` (or `$HOME/.dewormer/config.json` in POSIX shells)
 
 ```bash
 ./dewormer
