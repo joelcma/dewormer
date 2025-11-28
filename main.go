@@ -13,6 +13,7 @@ import (
 
 	"github.com/gen2brain/beeep"
 	"github.com/joelcma/dewormer/readers"
+	statepkg "github.com/joelcma/dewormer/state"
 )
 
 // Version can be overridden at build time like this: go build -ldflags "-X main.Version=1.2.3" -o dewormer
@@ -34,15 +35,18 @@ type ScanResult struct {
 func main() {
 	// CLI flags
 	var showVersion bool
+	var intervalFlag string
 	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version and exit (shorthand)")
+	flag.StringVar(&intervalFlag, "interval", "", "Run periodically with this interval (e.g. 12h). If omitted the program performs a single run and exits.")
+	flag.StringVar(&intervalFlag, "i", "", "Shorthand for --interval")
 	flag.Parse()
 	if showVersion {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
 	configPath := getConfigPath()
-	
+
 	// Check if config exists, create default if not
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if err := createDefaultConfig(configPath); err != nil {
@@ -58,17 +62,29 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Parse scan interval
-	interval, err := time.ParseDuration(config.ScanInterval)
-	if err != nil {
-		log.Printf("Invalid scan interval, defaulting to 12h: %v", err)
-		interval = 12 * time.Hour
+	var interval time.Duration
+
+	if intervalFlag == "" {
+		// no --interval provided -> single-run mode
+		log.Println("Dewormer started in single-run mode (no --interval provided)")
+	} else {
+		interval, err = time.ParseDuration(intervalFlag)
+		if err != nil {
+			log.Printf("Invalid --interval value, defaulting to 12h: %v", err)
+			interval = 12 * time.Hour
+		}
+
+		log.Printf("Dewormer started. Scanning every %s", interval)
 	}
 
-	log.Printf("Dewormer started. Scanning every %s", interval)
-	
 	// Run initial scan immediately
 	runScan(config)
+
+	// If --interval wasn't provided then we run a single scan and exit.
+	if intervalFlag == "" {
+		log.Println("--interval not provided — single run complete, exiting")
+		return
+	}
 
 	// Run periodic scans
 	ticker := time.NewTicker(interval)
@@ -101,7 +117,7 @@ func createDefaultConfig(path string) error {
 		BadPackageLists: []string{
 			filepath.Join(homeDir, ".dewormer", "bad_package_lists", "npm-malicious.txt"),
 		},
-		ScanInterval: "12h",
+		ScanInterval:   "12h",
 	}
 
 	// Create bad package lists directory
