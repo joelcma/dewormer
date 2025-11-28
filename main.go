@@ -24,6 +24,10 @@ var Version = "dev"
 // ~/.dewormer/config.json path.
 var ConfigPathOverride string
 
+// BadListsDirOverride when set will make runScan look for bad package list files
+// in the specified directory instead of the default ~/.dewormer/bad_package_lists
+var BadListsDirOverride string
+
 type Config struct {
 	ScanPaths       []string `json:"scan_paths"`
 	BadPackageLists []string `json:"bad_package_lists"`
@@ -41,10 +45,13 @@ func main() {
 	var showVersion bool
 	var intervalFlag string
 	var configFlag string
+	var badListsFlag string
 	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version and exit (shorthand)")
 	flag.StringVar(&intervalFlag, "interval", "", "Run periodically with this interval (e.g. 12h). If omitted the program performs a single run and exits.")
 	flag.StringVar(&configFlag, "config", "", "Path to config.json (default: ~/.dewormer/config.json)")
+	flag.StringVar(&badListsFlag, "bad-package-files", "", "Path to a directory containing bad-package list files (default: ~/.dewormer/bad_package_lists)")
+	flag.StringVar(&badListsFlag, "b", "", "Shorthand for --bad-package-files")
 	flag.StringVar(&intervalFlag, "i", "", "Shorthand for --interval")
 	flag.Parse()
 	if showVersion {
@@ -61,6 +68,13 @@ func main() {
 
 	// Make the resolved path available to helper functions that call getConfigPath().
 	ConfigPathOverride = configPath
+
+	// Bad lists dir flagged by user? make it available to runScan through a global
+	// override variable (helpers call os.UserHomeDir which respects HOME, so this
+	// keeps parity with getConfigPath override semantics).
+	if badListsFlag != "" {
+		BadListsDirOverride = badListsFlag
+	}
 
 	// Check if config exists, create default if not
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -197,9 +211,16 @@ func runScan(config *Config) {
 	// add configured lists first (may be empty)
 	listPaths = append(listPaths, config.BadPackageLists...)
 
-	// also include every file under ~/.dewormer/bad_package_lists
-	if home, err := os.UserHomeDir(); err == nil {
-		listsDir := filepath.Join(home, ".dewormer", "bad_package_lists")
+	// also include every file under ~/.dewormer/bad_package_lists (or an
+	// override directory supplied by --bad-package-files).
+	listsDir := ""
+	if BadListsDirOverride != "" {
+		listsDir = BadListsDirOverride
+	} else if home, err := os.UserHomeDir(); err == nil {
+		listsDir = filepath.Join(home, ".dewormer", "bad_package_lists")
+	}
+
+	if listsDir != "" {
 		if entries, err := os.ReadDir(listsDir); err == nil {
 			for _, e := range entries {
 				if e.IsDir() {

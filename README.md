@@ -23,7 +23,9 @@ Dewormer exposes a couple of convenient flags:
 
 - `--version` or `-v` — prints the build version and exits.
 - `--interval <duration>` or `-i <duration>` — run the program periodically with the supplied duration (e.g. `12h`, `30m`, `24h`). If omitted the program performs a single-run and exits. For production installs prefer scheduling the program to run at intervals using your system's scheduler (systemd timer / launchd StartInterval / Windows scheduled task) instead of relying on `--interval` in a background service.
+- `--config <path>` — path to config.json to use instead of the default `~/.dewormer/config.json`.
  - `--config <path>` — path to config.json to use instead of the default `~/.dewormer/config.json`.
+ - `--bad-package-files <dir>` or `-b <dir>` — point Dewormer at a directory that contains bad-package list files (text files). When set, Dewormer will include every file found in that directory (in addition to anything listed explicitly under `bad_package_lists` in your config). Default: `~/.dewormer/bad_package_lists`.
 
 ## Installation
 
