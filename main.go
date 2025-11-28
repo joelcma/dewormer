@@ -186,6 +186,7 @@ func runScan(config *Config) {
 				full := filepath.Join(listsDir, e.Name())
 				// avoid duplicates
 				found := false
+
 				for _, p := range listPaths {
 					if p == full {
 						found = true
@@ -202,6 +203,30 @@ func runScan(config *Config) {
 	// Load all bad packages
 	badPackages := loadBadPackages(listPaths)
 	log.Printf("Loaded %d bad packages from %d lists", len(badPackages), len(listPaths))
+
+	// compute latest modtime of the bad-package lists; we'll use this to
+	// determine whether a given package file needs scanning. If any list has
+	// changed more recently than the package file we should check it.
+	var latestListMod time.Time
+
+	// Use same config dir as getConfigPath to determine where to persist
+	// the scan state so it's always colocated with the config file.
+	cfgPath := getConfigPath()
+	scanStatePath := filepath.Join(filepath.Dir(cfgPath), "scan_state.json")
+
+	log.Printf("Loading scan state from %s", scanStatePath)
+	state := statepkg.LoadScanState(scanStatePath)
+	for _, p := range listPaths {
+		st, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+
+		// (state already loaded)
+		if st.ModTime().After(latestListMod) {
+			latestListMod = st.ModTime()
+		}
+	}
 
 	// initialize available readers
 	readersList := []readers.DependencyReader{
@@ -233,6 +258,35 @@ func runScan(config *Config) {
 			fileFound := false
 			for _, r := range readersList {
 				if r.Supports(info.Name()) {
+					// decide whether we need to scan this file using persisted
+					// state. We'll re-scan when any of the following is true:
+					//  - We've never scanned this file before
+					//  - The package file changed since we last scanned it
+					//  - Any bad-package list was modified since we last scanned it
+					pkgMod := info.ModTime()
+
+					// normalize path key (absolute + clean) so persisted state
+					// matches across runs regardless of how the scan was started
+					absPath := path
+					if !filepath.IsAbs(absPath) {
+						if a, err := filepath.Abs(path); err == nil {
+							absPath = a
+						}
+					}
+					absPath = filepath.Clean(absPath)
+
+					var lastScan time.Time
+					if ts, ok := state[absPath]; ok && ts > 0 {
+						lastScan = time.Unix(0, ts)
+					}
+
+					needScan := lastScan.IsZero() || pkgMod.After(lastScan) || latestListMod.After(lastScan)
+
+					if !needScan {
+						log.Printf("Skipping scan for %s (no changes since last scan at %s)", path, lastScan)
+						return nil
+					}
+
 					filesScanned++
 					deps, err := r.ReadDependencies(path)
 					if err != nil {
@@ -241,6 +295,9 @@ func runScan(config *Config) {
 						matches := findMatches(deps, badPackages, path)
 						results = append(results, matches...)
 					}
+
+					// Mark file as scanned now (store UnixNano)
+					state[absPath] = time.Now().UnixNano()
 
 					fileFound = true
 					break
@@ -253,6 +310,13 @@ func runScan(config *Config) {
 
 			return nil
 		})
+	}
+
+	// persist scan state
+	if scanStatePath != "" {
+		if err := statepkg.SaveScanState(scanStatePath, state); err != nil {
+			log.Printf("Failed to save scan state: %v", err)
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -286,10 +350,10 @@ func loadBadPackages(listPaths []string) map[string]map[string]string {
 
 		listName := filepath.Base(listPath)
 		scanner := bufio.NewScanner(file)
-		
+
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			
+
 			// Skip comments and empty lines
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
@@ -313,8 +377,6 @@ func loadBadPackages(listPaths []string) map[string]map[string]string {
 
 	return badPackages
 }
-
-// dependency readers (package-lock.json, pom.xml) live in the readers/ package.
 
 func findMatches(deps map[string]string, badPackages map[string]map[string]string, filePath string) []ScanResult {
 	var results []ScanResult
