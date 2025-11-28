@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gen2brain/beeep"
+	"github.com/joelcma/dewormer/readers"
 )
 
 type Config struct {
@@ -20,25 +20,7 @@ type Config struct {
 	ScanInterval    string   `json:"scan_interval"` // e.g., "12h", "24h"
 }
 
-type PackageLock struct {
-	Packages map[string]PackageInfo `json:"packages"`
-}
 
-type PackageInfo struct {
-	Version string `json:"version"`
-}
-
-type PomXML struct {
-	Dependencies struct {
-		Dependency []Dependency `xml:"dependency"`
-	} `xml:"dependencies"`
-}
-
-type Dependency struct {
-	GroupID    string `xml:"groupId"`
-	ArtifactID string `xml:"artifactId"`
-	Version    string `xml:"version"`
-}
 
 type ScanResult struct {
 	Package string
@@ -187,7 +169,13 @@ func runScan(config *Config) {
 
 	// Load all bad packages
 	badPackages := loadBadPackages(listPaths)
-	log.Printf("Loaded %d bad packages from %d lists", len(badPackages), len(config.BadPackageLists))
+	log.Printf("Loaded %d bad packages from %d lists", len(badPackages), len(listPaths))
+
+	// initialize available readers
+	readersList := []readers.DependencyReader{
+		readers.NewPackageLockReader(),
+		readers.NewPomReader(),
+	}
 
 	var results []ScanResult
 	filesScanned := 0
@@ -210,19 +198,21 @@ func runScan(config *Config) {
 				return nil
 			}
 
-			fileFound := true
-			if info.Name() == "package-lock.json" {
-				filesScanned++
-				deps := extractNpmDependencies(path)
-				matches := findMatches(deps, badPackages, path)
-				results = append(results, matches...)
-			} else if info.Name() == "pom.xml" {
-				filesScanned++
-				deps := extractMavenDependencies(path)
-				matches := findMatches(deps, badPackages, path)
-				results = append(results, matches...)
-			} else {
-				fileFound = false
+			fileFound := false
+			for _, r := range readersList {
+				if r.Supports(info.Name()) {
+					filesScanned++
+					deps, err := r.ReadDependencies(path)
+					if err != nil {
+						log.Printf("could not read dependencies with %s: %v", r.Name(), err)
+					} else {
+						matches := findMatches(deps, badPackages, path)
+						results = append(results, matches...)
+					}
+
+					fileFound = true
+					break
+				}
 			}
 
 			if fileFound {
@@ -292,59 +282,7 @@ func loadBadPackages(listPaths []string) map[string]map[string]string {
 	return badPackages
 }
 
-func extractNpmDependencies(path string) map[string]string {
-	deps := make(map[string]string)
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return deps
-	}
-
-	var packageLock PackageLock
-	if err := json.Unmarshal(data, &packageLock); err != nil {
-		return deps
-	}
-
-	for pkgPath, info := range packageLock.Packages {
-		// Skip the root package (empty string key)
-		if pkgPath == "" {
-			continue
-		}
-
-		// Extract package name from path (e.g., "node_modules/express" -> "express")
-		pkgName := strings.TrimPrefix(pkgPath, "node_modules/")
-		
-		if info.Version != "" {
-			deps[pkgName] = info.Version
-		}
-	}
-
-	return deps
-}
-
-func extractMavenDependencies(path string) map[string]string {
-	deps := make(map[string]string)
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return deps
-	}
-
-	var pom PomXML
-	if err := xml.Unmarshal(data, &pom); err != nil {
-		return deps
-	}
-
-	for _, dep := range pom.Dependencies.Dependency {
-		if dep.Version != "" {
-			// Format: groupId:artifactId
-			pkgName := fmt.Sprintf("%s:%s", dep.GroupID, dep.ArtifactID)
-			deps[pkgName] = dep.Version
-		}
-	}
-
-	return deps
-}
+// dependency readers (package-lock.json, pom.xml) live in the readers/ package.
 
 func findMatches(deps map[string]string, badPackages map[string]map[string]string, filePath string) []ScanResult {
 	var results []ScanResult
