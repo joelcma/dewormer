@@ -46,11 +46,14 @@ func main() {
 	var intervalFlag string
 	var configFlag string
 	var badListsFlag string
+	var forceRescan bool
 	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version and exit (shorthand)")
 	flag.StringVar(&intervalFlag, "interval", "", "Run periodically with this interval (e.g. 12h). If omitted the program performs a single run and exits.")
 	flag.StringVar(&configFlag, "config", "", "Path to config.json (default: ~/.dewormer/config.json)")
 	flag.StringVar(&badListsFlag, "bad-package-files", "", "Path to a directory containing bad-package list files (default: ~/.dewormer/bad_package_lists)")
+	flag.BoolVar(&forceRescan, "force-rescan", false, "Scan all supported files even if scan state says they are unchanged")
+	flag.BoolVar(&forceRescan, "r", false, "Shorthand for --force-rescan")
 	flag.StringVar(&badListsFlag, "b", "", "Shorthand for --bad-package-files")
 	flag.StringVar(&intervalFlag, "i", "", "Shorthand for --interval")
 	flag.Parse()
@@ -107,7 +110,7 @@ func main() {
 	}
 
 	// Run initial scan immediately
-	runScan(config)
+	runScan(config, forceRescan)
 
 	// If --interval wasn't provided then we run a single scan and exit.
 	if intervalFlag == "" {
@@ -120,7 +123,7 @@ func main() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		runScan(config)
+		runScan(config, forceRescan)
 	}
 }
 
@@ -229,9 +232,12 @@ func loadConfig(path string) (*Config, error) {
 	return &config, nil
 }
 
-func runScan(config *Config) {
+func runScan(config *Config, forceRescan bool) {
 	log.Println("Starting scan...")
 	startTime := time.Now()
+	if forceRescan {
+		log.Println("Force rescan enabled; ignoring scan state for this run")
+	}
 
 	// Build the list of bad package list files to load.
 	// We use any entries in config.BadPackageLists plus every file found in
@@ -333,7 +339,7 @@ func runScan(config *Config) {
 					// decide whether we need to scan this file using persisted
 					// state. shouldScan returns the normalized path, last scan time
 					// and whether a scan is required.
-					absPath, lastScan, needScan := shouldScan(path, info, latestListMod, state)
+					absPath, lastScan, needScan := shouldScan(path, info, latestListMod, state, forceRescan)
 					if !needScan {
 						log.Printf("Skipping scan for %s (no changes since last scan at %s)", path, lastScan)
 						return nil
@@ -435,7 +441,7 @@ func loadBadPackages(listPaths []string) map[string]map[string]string {
 // modification time and the latest modification time among bad-package lists.
 // It returns the normalized absolute path, the lastScan time (zero if never)
 // and whether a scan is required.
-func shouldScan(path string, info os.FileInfo, latestListMod time.Time, state map[string]int64) (string, time.Time, bool) {
+func shouldScan(path string, info os.FileInfo, latestListMod time.Time, state map[string]int64, forceRescan bool) (string, time.Time, bool) {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		if a, err := filepath.Abs(path); err == nil {
@@ -448,6 +454,9 @@ func shouldScan(path string, info os.FileInfo, latestListMod time.Time, state ma
 	var lastScan time.Time
 	if ts, ok := state[abs]; ok && ts > 0 {
 		lastScan = time.Unix(0, ts)
+	}
+	if forceRescan {
+		return abs, lastScan, true
 	}
 
 	need := lastScan.IsZero() || pkgMod.After(lastScan) || latestListMod.After(lastScan)

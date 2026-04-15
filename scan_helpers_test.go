@@ -21,7 +21,7 @@ func TestShouldScan_Behavior(t *testing.T) {
 
 	// Case 1: no last-scan entry -> should scan
 	state := map[string]int64{}
-	_, last, need := shouldScan(fpath, info, time.Time{}, state)
+	_, last, need := shouldScan(fpath, info, time.Time{}, state, false)
 	if !need {
 		t.Fatalf("expected needScan when lastScan missing, got need=%v last=%v", need, last)
 	}
@@ -31,7 +31,7 @@ func TestShouldScan_Behavior(t *testing.T) {
 	state = map[string]int64{}
 	abs := filepath.Clean(fpath)
 	state[abs] = later.UnixNano()
-	_, last2, need2 := shouldScan(fpath, info, time.Time{}, state)
+	_, last2, need2 := shouldScan(fpath, info, time.Time{}, state, false)
 	if need2 {
 		t.Fatalf("expected skip when lastScan after file mod, got need=%v last=%v", need2, last2)
 	}
@@ -40,8 +40,15 @@ func TestShouldScan_Behavior(t *testing.T) {
 	old := time.Now().Add(-time.Hour)
 	state = map[string]int64{abs: old.UnixNano()}
 	latestListMod := time.Now()
-	_, last3, need3 := shouldScan(fpath, info, latestListMod, state)
+	_, last3, need3 := shouldScan(fpath, info, latestListMod, state, false)
 	if !need3 {
 		t.Fatalf("expected needScan when list mod is newer, got need=%v last=%v", need3, last3)
+	}
+
+	// Case 4: force rescan ignores persisted state
+	state = map[string]int64{abs: later.UnixNano()}
+	_, last4, need4 := shouldScan(fpath, info, time.Time{}, state, true)
+	if !need4 {
+		t.Fatalf("expected force rescan to ignore scan state, got need=%v last=%v", need4, last4)
 	}
 }
