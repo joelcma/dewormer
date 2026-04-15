@@ -43,12 +43,21 @@ func (r *PackageLockReader) ReadDependencies(path string) (map[string]string, er
 			continue
 		}
 
-		// Example path: node_modules/express or @scope/node_modules/...
-		pkgName := strings.TrimPrefix(pkgPath, "node_modules/")
+		pkgName := packageNameFromLockPath(pkgPath)
 		if info.Version != "" {
 			deps[pkgName] = info.Version
 		}
 	}
 
 	return deps, nil
+}
+
+func packageNameFromLockPath(pkgPath string) string {
+	if pkgPath == "" {
+		return ""
+	}
+
+	parts := strings.Split(pkgPath, "node_modules/")
+	name := parts[len(parts)-1]
+	return strings.TrimPrefix(name, "/")
 }
