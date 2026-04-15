@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
 go build -o dewormer
 
 # On macos
@@ -29,8 +33,12 @@ echo "Setting up background service..."
 
 # On macos, set up a launchd service
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  PLIST=~/Library/LaunchAgents/com.dewormer.plist
-  cat <<EOL > $PLIST
+  PLIST="$HOME/Library/LaunchAgents/com.dewormer.plist"
+  LAUNCHD_DOMAIN="gui/$(id -u)"
+
+  mkdir -p "$(dirname "$PLIST")"
+
+  cat <<EOL > "$PLIST"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -48,7 +56,16 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 </dict>
 </plist>
 EOL
-  launchctl load $PLIST
+
+  plutil -lint "$PLIST" >/dev/null
+  launchctl bootout "$LAUNCHD_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+
+  if ! launchctl bootstrap "$LAUNCHD_DOMAIN" "$PLIST"; then
+    echo "Failed to load launchd agent from $PLIST" >&2
+    exit 1
+  fi
+
+  launchctl kickstart -k "$LAUNCHD_DOMAIN/com.dewormer" >/dev/null 2>&1 || true
   echo "Dewormer background service set up with launchd."
   exit 0
 fi
